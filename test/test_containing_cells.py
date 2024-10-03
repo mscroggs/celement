@@ -34,7 +34,9 @@ def test_get_containing_cells():
         points.append(point)
         cells.append(i)
         for j in cell:
-            point = (square.geometry.x[j] + sum(square.geometry.x[p] for p in cell)) / (len(cell) + 1)
+            point = (square.geometry.x[j] + sum(square.geometry.x[p] for p in cell)) / (
+                len(cell) + 1
+            )
             points.append(point)
             cells.append(i)
     points = np.array(points)
