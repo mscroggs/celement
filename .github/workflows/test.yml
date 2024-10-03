@@ -1,0 +1,23 @@
+name: 🧪
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  style-checks:
+    name: Run tests
+    runs-on: ubuntu-latest
+    container: bempp/cl-dev-env-with-dolfinx-numba
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install celement
+        run: python3 -m pip install .[test]
+      - name: Run tests
+        run: python3 -m pytest test/
+      - name: Run examples
+        run: python3 -m pytest examples/_test.py
