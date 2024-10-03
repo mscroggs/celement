@@ -24,18 +24,18 @@ f.interpolate(lambda x: x[1] ** 2)
 f2 = dolfinx.fem.Function(p1square)
 f2.interpolate(lambda x: x[1] ** 2)
 
-points = []
+pts = []
 values = []
 cells = []
 for i, cell in enumerate(square.geometry.dofmap):
     point = sum(square.geometry.x[p] for p in cell) / len(cell)
-    points.append(point)
+    pts.append(point)
     cells.append(i)
     for j in cell:
         point = (square.geometry.x[j] + sum(square.geometry.x[p] for p in cell)) / (len(cell) + 1)
-        points.append(point)
+        pts.append(point)
         cells.append(i)
-points = np.array(points)
+points = np.array(pts)
 
 values = f2.eval(points, cells)
 values2 = f.eval(points, celement.get_containing_cells(points, cube))
