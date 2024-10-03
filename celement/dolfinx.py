@@ -1,4 +1,4 @@
-"""Utility functions."""
+"""Functions for coupling using DOLFINx."""
 
 import typing
 
@@ -28,3 +28,22 @@ def get_containing_cells(
         assert len(colliding_cells.links(i)) > 0
         cells.append(colliding_cells.links(i)[0])
     return cells
+
+
+def trace(
+    function: dolfinx.fem.Function, trace_space: dolfinx.fem.FunctionSpace
+) -> dolfinx.fem.Function:
+    """Get the trace of a function in another space.
+
+    Args:
+        function: The function
+        trace_space: The space to take the trace in
+
+    Returns:
+        A function in trace_space
+    """
+    trace_fun = dolfinx.fem.Function(trace_space)
+    trace_fun.interpolate(
+        lambda x: function.eval(x.T, get_containing_cells(x.T, function.function_space.mesh))[:, 0]
+    )
+    return trace_fun
