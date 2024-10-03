@@ -12,11 +12,8 @@ jobs:
   style-checks:
     name: Run style checks
     runs-on: ubuntu-latest
+    container: bempp/cl-dev-env-with-dolfinx-numba
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
       - uses: actions/checkout@v4
       - run: pip3 install -e .[style]
       - run: |
