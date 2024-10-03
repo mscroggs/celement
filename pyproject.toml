@@ -8,7 +8,7 @@ license = { file = "LICENSE" }
 authors = [
     { name = "Matthew Scroggs", email = "celement@mscroggs.co.uk" }
 ]
-dependencies = []
+dependencies = ["numpy", "fenics-dolfinx"]
 
 [project.urls]
 homepage = "https://github.com/mscroggs/celement"
@@ -16,7 +16,7 @@ repository = "https://github.com/mscroggs/celement"
 
 [project.optional-dependencies]
 optional = []
-style = ["ruff", "mypy"]
+style = ["ruff", "mypy", "isort"]
 test = ["pytest", "celement[optional]"]
 
 [tool.ruff]
