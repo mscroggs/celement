@@ -42,7 +42,6 @@ def test_get_containing_cells(cube_cell_type, square_cell_type):
     f2.interpolate(lambda x: x[1] ** 2)
 
     pts = []
-    values = []
     cells = []
     for i, cell in enumerate(square.geometry.dofmap):
         point = sum(square.geometry.x[p] for p in cell) / len(cell)

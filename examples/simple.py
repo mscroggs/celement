@@ -10,7 +10,7 @@ cube = dolfinx.mesh.create_unit_cube(MPI.COMM_WORLD, 3, 3, 3)
 square2d = dolfinx.mesh.create_unit_square(MPI.COMM_WORLD, 3, 3)
 square = dolfinx.mesh.create_mesh(
     MPI.COMM_WORLD,
-    square2d.geometry.dofmap,
+    np.array(square2d.geometry.dofmap, dtype=np.int64),
     square2d.geometry.x,
     ufl.Mesh(basix.ufl.element("Lagrange", "triangle", 1, shape=(3,))),
 )
@@ -25,7 +25,6 @@ f2 = dolfinx.fem.Function(p1square)
 f2.interpolate(lambda x: x[1] ** 2)
 
 pts = []
-values = []
 cells = []
 for i, cell in enumerate(square.geometry.dofmap):
     point = sum(square.geometry.x[p] for p in cell) / len(cell)
