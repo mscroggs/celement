@@ -264,7 +264,7 @@ for npow in range(1, 5):
         print(f"  residual = {x}")
 
     print("Starting solve")
-    sol, info = gmres(S, rhs, callback=f, maxiter=100, tol=1e-8)
+    sol, info = gmres(S, rhs, callback=f, maxiter=100, rtol=1e-8)
     sol_func = dolfinx.fem.Function(space)
     sol_func.x.array[:] = sol
 
