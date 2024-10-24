@@ -8,7 +8,7 @@ license = { file = "LICENSE" }
 authors = [
     { name = "Matthew Scroggs", email = "celement@mscroggs.co.uk" }
 ]
-dependencies = ["numpy", "fenics-dolfinx"]
+dependencies = ["numpy", "fenics-dolfinx", "scipy"]
 
 [project.urls]
 homepage = "https://github.com/mscroggs/celement"
