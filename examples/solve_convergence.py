@@ -7,11 +7,11 @@ of convergence to the exact solution.
 import basix.ufl
 import dolfinx
 import dolfinx.fem.petsc
+import matplotlib.pylab as plt
 import numpy as np
 import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
-import matplotlib.pylab as plt
 from scipy.sparse.linalg import LinearOperator, gmres
 
 import celement
