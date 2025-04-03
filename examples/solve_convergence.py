@@ -59,6 +59,11 @@ class DolfinxSide(object):
         self.lamb = ufl.TrialFunction(self.lambda_space)
         self.mu = ufl.TestFunction(self.lambda_space)
 
+        lambda_mesh = lambda_space.mesh
+        cmap = lambda_mesh.topology.index_map(lambda_mesh.topology.dim)
+        self.lambda_num_cells = cmap.size_local + cmap.num_ghosts
+        self.lambda_interpolation_data = dolfinx.fem.create_interpolation_data(lambda_space, coupling_space, np.arange(self.lambda_num_cells, dtype=np.int32), 1e-3)
+
     def A_inverse(self, fun, apply_mass=True):
         if apply_mass:
             b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
@@ -139,11 +144,7 @@ class DolfinxSide(object):
     def interpolate(self, fun):
         out = dolfinx.fem.Function(self.lambda_space)
 
-        mesh = self.lambda_space.mesh
-        cmap = mesh.topology.index_map(mesh.topology.dim)
-        num_cells = cmap.size_local + cmap.num_ghosts
-        interpolation_data =  dolfinx.fem.create_interpolation_data(self.lambda_space, fun.function_space, np.arange(num_cells, dtype=np.int32), 1e-3)
-        out.interpolate_nonmatching(fun,  np.arange(num_cells, dtype=np.int32), interpolation_data)
+        out.interpolate_nonmatching(fun,  np.arange(self.lambda_num_cells, dtype=np.int32), self.lambda_interpolation_data)
         return out
 
 
@@ -261,7 +262,7 @@ class DolfinxNegativeSide(DolfinxSide):
 
 xs = []
 ys = []
-for npow in range(1, 6):
+for npow in range(2, 6):
     n = 2**npow
     print(f"{n=}")
     xs.append(n)
@@ -304,11 +305,13 @@ for npow in range(1, 6):
 
     S = LinearOperator((ndofs, ndofs), matvec=lhs)
 
+    its = 0
     def f(x):
-        print(f"  residual = {x}")
+        global its
+        its += 1
 
     print("Starting solve")
-    sol, info = gmres(S, rhs, callback=f, maxiter=100, rtol=1e-5)
+    sol, info = gmres(S, rhs, callback=f, maxiter=500, rtol=1e-8)
     sol_func = dolfinx.fem.Function(space)
     sol_func.x.array[:] = sol
 
@@ -318,7 +321,10 @@ for npow in range(1, 6):
         dolfinx.fem.form(ufl.inner(sol_func - exact_lamb, sol_func - exact_lamb) * ufl.dx)
     )
     ys.append(error)
-    print(f"{error=}")
+    print(f"h={1.0 / n}")
+    print(f"error={error**0.5}")
+    print(f"{its=}")
+    print()
 
 plt.plot(xs, ys, "ro-")
 plt.xscale("log")
