@@ -65,16 +65,13 @@ class DolfinxSide(object):
         self.lambda_interpolation_data = dolfinx.fem.create_interpolation_data(lambda_space, coupling_space, np.arange(self.lambda_num_cells, dtype=np.int32), 1e-3)
 
     def A_inverse(self, fun, apply_mass=True):
+        b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
         if apply_mass:
-            b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
             b = dolfinx.fem.petsc.assemble_vector(b_form)
             dolfinx.fem.petsc.apply_lifting(b, [self.a_form], bcs=[[self.bc]])
             b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)  # type: ignore
         else:
-            b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
-            b = dolfinx.fem.petsc.assemble_vector(b_form)
-            dolfinx.fem.petsc.apply_lifting(b, [self.a_form], bcs=[[self.bc]])
-            b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)  # type: ignore
+            b = dolfinx.fem.petsc.create_vector(b_form)
             b.array[:] = fun.x.array[:]
 
         u = dolfinx.fem.Function(self.space)
