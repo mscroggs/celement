@@ -1,11 +1,7 @@
 """Functions for coupling using DOLFINx."""
 
-import typing
-
-import basix.ufl
 import dolfinx
 import numpy as np
-import numpy.typing as npt
 
 
 def trace(
@@ -26,6 +22,10 @@ def trace(
 
     cmap = trace_space.mesh.topology.index_map(trace_space.mesh.topology.dim)
     num_cells = cmap.size_local + cmap.num_ghosts
-    interpolation_data =  dolfinx.fem.create_interpolation_data(trace_space, space, np.arange(num_cells, dtype=np.int32), 1e-2)
-    trace_function.interpolate_nonmatching(function,  np.arange(num_cells, dtype=np.int32), interpolation_data)
+    interpolation_data = dolfinx.fem.create_interpolation_data(
+        trace_space, space, np.arange(num_cells, dtype=np.int32), 1e-2
+    )
+    trace_function.interpolate_nonmatching(
+        function, np.arange(num_cells, dtype=np.int32), interpolation_data
+    )
     return trace_function

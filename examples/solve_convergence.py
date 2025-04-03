@@ -62,7 +62,9 @@ class DolfinxSide(object):
         lambda_mesh = lambda_space.mesh
         cmap = lambda_mesh.topology.index_map(lambda_mesh.topology.dim)
         self.lambda_num_cells = cmap.size_local + cmap.num_ghosts
-        self.lambda_interpolation_data = dolfinx.fem.create_interpolation_data(lambda_space, coupling_space, np.arange(self.lambda_num_cells, dtype=np.int32), 1e-3)
+        self.lambda_interpolation_data = dolfinx.fem.create_interpolation_data(
+            lambda_space, coupling_space, np.arange(self.lambda_num_cells, dtype=np.int32), 1e-3
+        )
 
     def A_inverse(self, fun, apply_mass=True):
         b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
@@ -141,7 +143,9 @@ class DolfinxSide(object):
     def interpolate(self, fun):
         out = dolfinx.fem.Function(self.lambda_space)
 
-        out.interpolate_nonmatching(fun,  np.arange(self.lambda_num_cells, dtype=np.int32), self.lambda_interpolation_data)
+        out.interpolate_nonmatching(
+            fun, np.arange(self.lambda_num_cells, dtype=np.int32), self.lambda_interpolation_data
+        )
         return out
 
 
@@ -199,7 +203,9 @@ class DolfinxPositiveSide(DolfinxSide):
         mesh_to_submesh[submesh_to_mesh] = np.arange(len(submesh_to_mesh))
         entity_maps = {submesh: mesh_to_submesh}
 
-        self.set_b(dolfinx.fem.form(-ufl.inner(self.u, self.mu) * ds(tags[0]), entity_maps=entity_maps))
+        self.set_b(
+            dolfinx.fem.form(-ufl.inner(self.u, self.mu) * ds(tags[0]), entity_maps=entity_maps)
+        )
         self.create_solver(petsc_options)
 
 
@@ -253,7 +259,9 @@ class DolfinxNegativeSide(DolfinxSide):
         mesh_to_submesh[submesh_to_mesh] = np.arange(len(submesh_to_mesh))
         entity_maps = {submesh: mesh_to_submesh}
 
-        self.set_b(dolfinx.fem.form(-ufl.inner(self.u, self.mu) * ds(tags[0]), entity_maps=entity_maps))
+        self.set_b(
+            dolfinx.fem.form(-ufl.inner(self.u, self.mu) * ds(tags[0]), entity_maps=entity_maps)
+        )
         self.create_solver(petsc_options)
 
 
@@ -303,6 +311,7 @@ for npow in range(2, 6):
     S = LinearOperator((ndofs, ndofs), matvec=lhs)
 
     its = 0
+
     def f(x):
         global its
         its += 1
