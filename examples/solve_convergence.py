@@ -47,19 +47,6 @@ def rhs_f(x):
     )
 
 
-def mollify(function, space):
-    m_fun = dolfinx.fem.Function(space)
-
-    def nearest_eval(x):
-        x[2] = 0
-        return function.eval(
-            x.T, celement.dolfinx.get_containing_cells(x.T, function.function_space.mesh)
-        )[:, 0]
-
-    m_fun.interpolate(nearest_eval)
-    return m_fun
-
-
 class DolfinxSide(object):
     def __init__(self, mesh, space, lambda_space, coupling_space):
         self.mesh = mesh
@@ -72,20 +59,21 @@ class DolfinxSide(object):
         self.lamb = ufl.TrialFunction(self.lambda_space)
         self.mu = ufl.TestFunction(self.lambda_space)
 
-    def mollify(self, fun):
-        return mollify(fun, self.lambda_space)
+        lambda_mesh = lambda_space.mesh
+        cmap = lambda_mesh.topology.index_map(lambda_mesh.topology.dim)
+        self.lambda_num_cells = cmap.size_local + cmap.num_ghosts
+        self.lambda_interpolation_data = dolfinx.fem.create_interpolation_data(
+            lambda_space, coupling_space, np.arange(self.lambda_num_cells, dtype=np.int32), 1e-3
+        )
 
     def A_inverse(self, fun, apply_mass=True):
+        b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
         if apply_mass:
-            b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
             b = dolfinx.fem.petsc.assemble_vector(b_form)
             dolfinx.fem.petsc.apply_lifting(b, [self.a_form], bcs=[[self.bc]])
             b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)  # type: ignore
         else:
-            b_form = dolfinx.fem.form(ufl.inner(fun, self.v) * ufl.dx)
-            b = dolfinx.fem.petsc.assemble_vector(b_form)
-            dolfinx.fem.petsc.apply_lifting(b, [self.a_form], bcs=[[self.bc]])
-            b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)  # type: ignore
+            b = dolfinx.fem.petsc.create_vector(b_form)
             b.array[:] = fun.x.array[:]
 
         u = dolfinx.fem.Function(self.space)
@@ -150,7 +138,24 @@ class DolfinxSide(object):
         self.f_form = form
 
     def set_b(self, form):
-        self.b_mat = dolfinx.fem.assemble_matrix(dolfinx.fem.form(form), bcs=[self.bc]).to_scipy()
+        self.b_mat = dolfinx.fem.assemble_matrix(form, bcs=[self.bc]).to_scipy()
+
+    def interpolate(self, fun):
+        out = dolfinx.fem.Function(self.lambda_space)
+
+        out.interpolate_nonmatching(
+            fun, np.arange(self.lambda_num_cells, dtype=np.int32), self.lambda_interpolation_data
+        )
+        return out
+
+
+def markers_to_meshtags(mesh, tags, markers, dim):
+    entities = [dolfinx.mesh.locate_entities_boundary(mesh, dim, marker) for marker in markers]
+    values = [np.full_like(entities, tag) for (tag, entities) in zip(tags, entities)]
+    entities = np.hstack(entities, dtype=np.int32)
+    values = np.hstack(values, dtype=np.intc)
+    perm = np.argsort(entities)
+    return dolfinx.mesh.meshtags(mesh, dim, entities[perm], values[perm])
 
 
 class DolfinxPositiveSide(DolfinxSide):
@@ -163,7 +168,16 @@ class DolfinxPositiveSide(DolfinxSide):
     ):
         mesh = dolfinx.mesh.create_unit_cube(comm, n, n, n)
         space = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
-        l_space = dolfinx.fem.functionspace(mesh, ("Discontinuous Lagrange", 0))
+
+        fdim = mesh.topology.dim - 1
+        tags = [1]
+        markers = [lambda x: np.isclose(x[2], 0.0)]
+        ft = markers_to_meshtags(mesh, tags, markers, fdim)
+
+        facets = ft.find(tags[0])
+        submesh, submesh_to_mesh = dolfinx.mesh.create_submesh(mesh, fdim, facets)[:2]
+
+        l_space = dolfinx.fem.functionspace(submesh, ("Discontinuous Lagrange", 0))
         super().__init__(mesh, space, l_space, coupling_space)
 
         self.set_bc(
@@ -177,7 +191,21 @@ class DolfinxPositiveSide(DolfinxSide):
         self.set_f(rhs_f)
         self.set_a(ufl.inner(ufl.grad(self.u), ufl.grad(self.v)) * ufl.dx)
         self.set_f_form(ufl.inner(self.f, self.v) * ufl.dx)
-        self.set_b(-ufl.inner(self.u, self.mu) * ufl.ds)
+
+        # Create integration measures. We take mesh to be the integration domain
+        ds = ufl.Measure("ds", domain=mesh, subdomain_data=ft)
+        # Since the integration domain is mesh, we must provide a map from facets
+        # in mesh to cells in submesh. This is simply the "inverse" of
+        # submesh_to_mesh and can be computed as follows:
+        facet_imap = mesh.topology.index_map(fdim)
+        num_facets = facet_imap.size_local + facet_imap.num_ghosts
+        mesh_to_submesh = np.full(num_facets, -1)
+        mesh_to_submesh[submesh_to_mesh] = np.arange(len(submesh_to_mesh))
+        entity_maps = {submesh: mesh_to_submesh}
+
+        self.set_b(
+            dolfinx.fem.form(-ufl.inner(self.u, self.mu) * ds(tags[0]), entity_maps=entity_maps)
+        )
         self.create_solver(petsc_options)
 
 
@@ -197,7 +225,15 @@ class DolfinxNegativeSide(DolfinxSide):
             ufl.Mesh(basix.ufl.element("Lagrange", "tetrahedron", 1, shape=(3,))),
         )
         space = dolfinx.fem.functionspace(mesh, ("Lagrange", 1))
-        l_space = dolfinx.fem.functionspace(mesh, ("Discontinuous Lagrange", 0))
+        fdim = mesh.topology.dim - 1
+        tags = [1]
+        markers = [lambda x: np.isclose(x[2], 0.0)]
+        ft = markers_to_meshtags(mesh, tags, markers, fdim)
+
+        facets = ft.find(tags[0])
+        submesh, submesh_to_mesh = dolfinx.mesh.create_submesh(mesh, fdim, facets)[:2]
+
+        l_space = dolfinx.fem.functionspace(submesh, ("Discontinuous Lagrange", 0))
         super().__init__(mesh, space, l_space, coupling_space)
 
         self.set_bc(
@@ -211,13 +247,27 @@ class DolfinxNegativeSide(DolfinxSide):
         self.set_f(rhs_f)
         self.set_a(ufl.inner(ufl.grad(self.u), ufl.grad(self.v)) * ufl.dx)
         self.set_f_form(ufl.inner(self.f, self.v) * ufl.dx)
-        self.set_b(ufl.inner(self.u, self.mu) * ufl.ds)
+
+        # Create integration measures. We take mesh to be the integration domain
+        ds = ufl.Measure("ds", domain=mesh, subdomain_data=ft)
+        # Since the integration domain is mesh, we must provide a map from facets
+        # in mesh to cells in submesh. This is simply the "inverse" of
+        # submesh_to_mesh and can be computed as follows:
+        facet_imap = mesh.topology.index_map(fdim)
+        num_facets = facet_imap.size_local + facet_imap.num_ghosts
+        mesh_to_submesh = np.full(num_facets, -1)
+        mesh_to_submesh[submesh_to_mesh] = np.arange(len(submesh_to_mesh))
+        entity_maps = {submesh: mesh_to_submesh}
+
+        self.set_b(
+            dolfinx.fem.form(-ufl.inner(self.u, self.mu) * ds(tags[0]), entity_maps=entity_maps)
+        )
         self.create_solver(petsc_options)
 
 
 xs = []
 ys = []
-for npow in range(1, 5):
+for npow in range(2, 6):
     n = 2**npow
     print(f"{n=}")
     xs.append(n)
@@ -240,7 +290,7 @@ for npow in range(1, 5):
     pos_g = positive.trace(positive.B(positive.A_inverse(positive.f)))
     neg_g = negative.trace(negative.B(negative.A_inverse(negative.f)))
     rhs = dolfinx.fem.assemble_vector(
-        dolfinx.fem.form(ufl.inner(-(pos_g + neg_g), mu) * ufl.dx)
+        dolfinx.fem.form(ufl.inner(-(pos_g - neg_g), mu) * ufl.dx)
     ).array
 
     def lhs(coeffs):
@@ -248,10 +298,10 @@ for npow in range(1, 5):
         lamb.x.array[:] = coeffs
 
         pos = positive.trace(
-            positive.B(positive.A_inverse(positive.B_T(positive.mollify(lamb)), False))
+            positive.B(positive.A_inverse(positive.B_T(positive.interpolate(lamb)), False))
         )
         neg = negative.trace(
-            negative.B(negative.A_inverse(negative.B_T(negative.mollify(lamb)), False))
+            negative.B(negative.A_inverse(negative.B_T(negative.interpolate(lamb)), False))
         )
 
         return dolfinx.fem.assemble_vector(
@@ -260,11 +310,14 @@ for npow in range(1, 5):
 
     S = LinearOperator((ndofs, ndofs), matvec=lhs)
 
+    its = 0
+
     def f(x):
-        print(f"  residual = {x}")
+        global its
+        its += 1
 
     print("Starting solve")
-    sol, info = gmres(S, rhs, callback=f, maxiter=100, rtol=1e-8)
+    sol, info = gmres(S, rhs, callback=f, maxiter=500, rtol=1e-8)
     sol_func = dolfinx.fem.Function(space)
     sol_func.x.array[:] = sol
 
@@ -274,13 +327,16 @@ for npow in range(1, 5):
         dolfinx.fem.form(ufl.inner(sol_func - exact_lamb, sol_func - exact_lamb) * ufl.dx)
     )
     ys.append(error)
-    print(f"{error=}")
+    print(f"h={1.0 / n}")
+    print(f"error={error**0.5}")
+    print(f"{its=}")
+    print()
 
 plt.plot(xs, ys, "ro-")
 plt.xscale("log")
 plt.yscale("log")
 plt.axis("equal")
 plt.xlabel("n")
-plt.ylabel("$\\|\lambda_h-\lambda\\|$")
+plt.ylabel("$\\|\\lambda_h-\\lambda\\|$")
 plt.savefig("convergence.png")
 plt.clf()
